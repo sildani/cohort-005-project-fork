@@ -3,19 +3,8 @@ import { z } from "zod";
 import type { Route } from "./+types/courses.$slug.refund";
 import { getCurrentUserId } from "~/lib/session";
 import { db } from "~/db";
-import {
-  courses,
-  lessonProgress,
-  lessons,
-  modules,
-  purchases,
-  refunds,
-  users,
-  videoWatchEvents,
-  LessonProgressStatus,
-  RefundStatus,
-} from "~/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { courses, purchases, refunds, users, RefundStatus } from "~/db/schema";
+import { and, eq } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { formatPrice } from "~/lib/utils";
 import {
@@ -24,6 +13,8 @@ import {
   type RefundIneligibleReason,
 } from "~/lib/refund-eligibility";
 import { getLatestPersonalPurchase } from "~/lib/personal-purchase.server";
+import { getRefundEligibilityFacts } from "~/lib/refund-facts.server";
+import { findRefundRequestForPurchase } from "~/lib/refund-decisions.server";
 
 const INELIGIBLE_MESSAGES: Record<RefundIneligibleReason, string> = {
   "window-closed": `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
@@ -59,48 +50,6 @@ function hasAnyPurchase(userId: number, courseId: number) {
   return Boolean(row);
 }
 
-function getLessonIdsForCourse(courseId: number): number[] {
-  const rows = db
-    .select({ id: lessons.id })
-    .from(lessons)
-    .innerJoin(modules, eq(lessons.moduleId, modules.id))
-    .where(eq(modules.courseId, courseId))
-    .all();
-
-  return rows.map((row) => row.id);
-}
-
-function getOpenRefundRequest(purchaseId: number) {
-  return db
-    .select()
-    .from(refunds)
-    .where(
-      and(
-        eq(refunds.purchaseId, purchaseId),
-        eq(refunds.status, RefundStatus.Open)
-      )
-    )
-    .get();
-}
-
-function getCompletedLessonCount(userId: number, lessonIds: number[]) {
-  if (lessonIds.length === 0) return 0;
-
-  const result = db
-    .select({ count: sql<number>`count(*)` })
-    .from(lessonProgress)
-    .where(
-      and(
-        eq(lessonProgress.userId, userId),
-        eq(lessonProgress.status, LessonProgressStatus.Completed),
-        inArray(lessonProgress.lessonId, lessonIds)
-      )
-    )
-    .get();
-
-  return result?.count ?? 0;
-}
-
 /**
  * The confirmation the learner gets in their inbox. There is no mail
  * transport wired up yet, so the built message goes to the server log.
@@ -120,7 +69,7 @@ function buildRefundRequestEmail(input: {
       `We have your refund request for "${input.courseTitle}".`,
       `The refund is for ${formatPrice(input.amount)}, the amount you paid.`,
       "",
-      "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
+      "Someone at Cadence reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
       "",
       "— The Cadence team",
     ].join("\n"),
@@ -163,43 +112,21 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("You have not bought this course.", { status: 403 });
   }
 
-  if (getOpenRefundRequest(purchase.id)) {
-    throw data("You already have an open refund request on this purchase.", {
+  // A purchase has at most one Refund Request, whatever the decision was.
+  if (findRefundRequestForPurchase(db, purchase.id)) {
+    throw data("You have already asked for a refund on this purchase.", {
       status: 409,
     });
   }
 
-  const courseLessonIds = getLessonIdsForCourse(course.id);
-
-  let watchedSeconds = 0;
-  if (courseLessonIds.length > 0) {
-    const furthestPerLesson = db
-      .select({
-        furthest: sql<number>`max(${videoWatchEvents.positionSeconds})`,
-      })
-      .from(videoWatchEvents)
-      .where(
-        and(
-          eq(videoWatchEvents.userId, currentUserId),
-          inArray(videoWatchEvents.lessonId, courseLessonIds)
-        )
-      )
-      .groupBy(videoWatchEvents.lessonId)
-      .all();
-
-    watchedSeconds = furthestPerLesson.reduce(
-      (total, row) => total + row.furthest,
-      0
-    );
-  }
-
-  const eligibility = checkRefundEligibility({
-    purchasedAt: purchase.createdAt,
-    today: new Date(),
-    totalLessons: courseLessonIds.length,
-    completedLessons: getCompletedLessonCount(currentUserId, courseLessonIds),
-    secondsWatched: watchedSeconds,
-  });
+  const eligibility = checkRefundEligibility(
+    getRefundEligibilityFacts(db, {
+      userId: currentUserId,
+      courseId: course.id,
+      purchasedAt: purchase.createdAt,
+      today: new Date(),
+    })
+  );
 
   if (!eligibility.eligible) {
     throw data(INELIGIBLE_MESSAGES[eligibility.reason], { status: 403 });

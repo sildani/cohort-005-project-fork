@@ -14,12 +14,10 @@ import {
   enrollments,
   lessonProgress,
   courseRatings,
-  refunds,
-  videoWatchEvents,
   LessonProgressStatus,
   RefundStatus,
 } from "~/db/schema";
-import { eq, and, or, sql, inArray } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -55,6 +53,9 @@ import { parseFormData } from "~/lib/validation";
 import { MAX_RATING, MIN_RATING } from "~/lib/ratings";
 import { checkRefundEligibility } from "~/lib/refund-eligibility";
 import { getLatestPersonalPurchase } from "~/lib/personal-purchase.server";
+import { getRefundEligibilityFacts } from "~/lib/refund-facts.server";
+import { findRefundRequestForPurchase } from "~/lib/refund-decisions.server";
+import { DECLINE_IS_FINAL } from "~/lib/refund-emails";
 import { StarRating, StarRatingInput } from "~/components/star-rating";
 
 function getCourseBySlug(slug: string) {
@@ -366,80 +367,43 @@ function rateCourse(userId: number, courseId: number, rating: number) {
     .get();
 }
 
-function getOpenRefundRequest(purchaseId: number) {
-  return db
-    .select({ id: refunds.id })
-    .from(refunds)
-    .where(
-      and(
-        eq(refunds.purchaseId, purchaseId),
-        eq(refunds.status, RefundStatus.Open)
-      )
-    )
-    .get();
-}
-
-function getCompletedLessonCount(userId: number, lessonIds: number[]) {
-  if (lessonIds.length === 0) return 0;
-
-  const result = db
-    .select({ count: sql<number>`count(*)` })
-    .from(lessonProgress)
-    .where(
-      and(
-        eq(lessonProgress.userId, userId),
-        eq(lessonProgress.status, LessonProgressStatus.Completed),
-        inArray(lessonProgress.lessonId, lessonIds)
-      )
-    )
-    .get();
-
-  return result?.count ?? 0;
-}
-
-function getSecondsWatched(userId: number, lessonIds: number[]) {
-  if (lessonIds.length === 0) return 0;
-
-  const furthestPerLesson = db
-    .select({
-      furthest: sql<number>`max(${videoWatchEvents.positionSeconds})`,
-    })
-    .from(videoWatchEvents)
-    .where(
-      and(
-        eq(videoWatchEvents.userId, userId),
-        inArray(videoWatchEvents.lessonId, lessonIds)
-      )
-    )
-    .groupBy(videoWatchEvents.lessonId)
-    .all();
-
-  return furthestPerLesson.reduce((total, row) => total + row.furthest, 0);
-}
+type RefundOffer =
+  | { kind: "offer"; amount: number; lastDayInWindow: string }
+  | { kind: "declined"; declineReason: string };
 
 /**
- * What the learner is offered if they want their money back, or null if this
- * purchase cannot be refunded.
+ * What the learner sees about getting their money back on their latest
+ * Personal Purchase: an offer, the reason their Refund Request was declined,
+ * or nothing (no purchase, an Open or Approved request, or not eligible).
  */
-function getRefundOffer(userId: number, course: { id: number }) {
+function getRefundOffer(
+  userId: number,
+  course: { id: number }
+): RefundOffer | null {
   const purchase = getLatestPersonalPurchase(userId, course.id);
 
   if (!purchase) return null;
-  if (getOpenRefundRequest(purchase.id)) return null;
 
-  const lessonIds = getCourseLessonIds(course.id);
+  const refundRequest = findRefundRequestForPurchase(db, purchase.id);
+  if (refundRequest) {
+    return refundRequest.status === RefundStatus.Declined
+      ? { kind: "declined", declineReason: refundRequest.declineReason ?? "" }
+      : null;
+  }
 
-  const eligibility = checkRefundEligibility({
-    purchasedAt: purchase.createdAt,
-    today: new Date(),
-    totalLessons: lessonIds.length,
-    completedLessons: getCompletedLessonCount(userId, lessonIds),
-    secondsWatched: getSecondsWatched(userId, lessonIds),
-  });
+  const eligibility = checkRefundEligibility(
+    getRefundEligibilityFacts(db, {
+      userId,
+      courseId: course.id,
+      purchasedAt: purchase.createdAt,
+      today: new Date(),
+    })
+  );
 
   if (!eligibility.eligible) return null;
 
   return {
+    kind: "offer",
     amount: purchase.amountPaid,
     lastDayInWindow: eligibility.lastDayInWindow,
   };
@@ -477,7 +441,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   let progress = 0;
   let lessonProgressMap: Record<number, string> = {};
   let nextLessonId: number | null = null;
-  let refundOffer: { amount: number; lastDayInWindow: string } | null = null;
+  let refundOffer: RefundOffer | null = null;
 
   if (currentUserId) {
     enrolled = isUserEnrolled(currentUserId, course.id);
@@ -864,11 +828,14 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                     </Button>
                   </Link>
                   <RateCourse userRating={userRating} />
-                  {refundOffer && (
+                  {refundOffer?.kind === "offer" && (
                     <RequestRefund
                       slug={course.slug}
                       amount={refundOffer.amount}
                     />
+                  )}
+                  {refundOffer?.kind === "declined" && (
+                    <RefundDeclined declineReason={refundOffer.declineReason} />
                   )}
                 </>
               ) : (
@@ -1000,6 +967,18 @@ function RequestRefund({ slug, amount }: { slug: string; amount: number }) {
           </Button>
         </div>
       </fetcher.Form>
+    </div>
+  );
+}
+
+function RefundDeclined({ declineReason }: { declineReason: string }) {
+  return (
+    <div className="border-t pt-4">
+      <p className="mb-1 text-sm font-medium">Refund declined</p>
+      <p className="mb-2 whitespace-pre-line text-sm text-muted-foreground">
+        {declineReason}
+      </p>
+      <p className="text-xs text-muted-foreground">{DECLINE_IS_FINAL}</p>
     </div>
   );
 }
