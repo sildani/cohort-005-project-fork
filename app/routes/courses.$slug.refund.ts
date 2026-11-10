@@ -6,20 +6,33 @@ import { db } from "~/db";
 import {
   courses,
   coupons,
+  lessonProgress,
   lessons,
   modules,
   purchases,
   refunds,
   users,
   videoWatchEvents,
+  LessonProgressStatus,
   RefundStatus,
 } from "~/db/schema";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { formatPrice } from "~/lib/utils";
+import {
+  checkRefundEligibility,
+  REFUND_WINDOW_DAYS,
+  type RefundIneligibleReason,
+} from "~/lib/refund-eligibility";
 
-const REFUND_WINDOW_DAYS = 14;
-const MAX_WATCHED_HOURS = 2;
+const INELIGIBLE_MESSAGES: Record<RefundIneligibleReason, string> = {
+  "claimed-seat": "A claimed team seat cannot be refunded.",
+  "window-closed": `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
+  "watched-too-much":
+    "You have watched too much of this course to request a refund.",
+  "completed-too-much":
+    "You have completed too much of this course to request a refund.",
+};
 
 const refundParamsSchema = z.object({
   slug: z.string().min(1),
@@ -70,18 +83,22 @@ function getOpenRefundRequest(purchaseId: number) {
     .get();
 }
 
-// The fourteen-day window is counted in whole days, not hours — someone who
-// buys at 23:00 should still get the whole of their fourteenth day.
-function calendarDay(when: Date): string {
-  const month = String(when.getMonth() + 1).padStart(2, "0");
-  const day = String(when.getDate()).padStart(2, "0");
-  return `${when.getFullYear()}-${month}-${day}`;
-}
+function getCompletedLessonCount(userId: number, lessonIds: number[]) {
+  if (lessonIds.length === 0) return 0;
 
-function lastDayOfWindow(purchasedAtIso: string): string {
-  const deadline = new Date(purchasedAtIso);
-  deadline.setDate(deadline.getDate() + REFUND_WINDOW_DAYS);
-  return calendarDay(deadline);
+  const result = db
+    .select({ count: sql<number>`count(*)` })
+    .from(lessonProgress)
+    .where(
+      and(
+        eq(lessonProgress.userId, userId),
+        eq(lessonProgress.status, LessonProgressStatus.Completed),
+        inArray(lessonProgress.lessonId, lessonIds)
+      )
+    )
+    .get();
+
+  return result?.count ?? 0;
 }
 
 /**
@@ -146,8 +163,6 @@ export async function action({ params, request }: Route.ActionArgs) {
     });
   }
 
-  // A seat that came out of a team licence, and has been claimed, belongs to
-  // the team — the learner cannot hand it back on their own.
   const claimedSeat = db
     .select({ id: coupons.id })
     .from(coupons)
@@ -155,19 +170,6 @@ export async function action({ params, request }: Route.ActionArgs) {
       and(eq(coupons.purchaseId, purchase.id), isNotNull(coupons.redeemedAt))
     )
     .get();
-
-  if (claimedSeat) {
-    throw data("A claimed team seat cannot be refunded.", { status: 403 });
-  }
-
-  const today = calendarDay(new Date());
-  const withinRefundWindow = today <= lastDayOfWindow(purchase.createdAt);
-
-  if (!withinRefundWindow) {
-    throw data(`The ${REFUND_WINDOW_DAYS}-day window has closed.`, {
-      status: 403,
-    });
-  }
 
   const courseLessonIds = getLessonIdsForCourse(course.id);
 
@@ -193,10 +195,17 @@ export async function action({ params, request }: Route.ActionArgs) {
     );
   }
 
-  if (watchedSeconds >= MAX_WATCHED_HOURS * 60 * 60) {
-    throw data("You have watched too much of this course to request a refund.", {
-      status: 403,
-    });
+  const eligibility = checkRefundEligibility({
+    purchasedAt: purchase.createdAt,
+    today: new Date(),
+    totalLessons: courseLessonIds.length,
+    completedLessons: getCompletedLessonCount(currentUserId, courseLessonIds),
+    secondsWatched: watchedSeconds,
+    hasClaimedSeat: Boolean(claimedSeat),
+  });
+
+  if (!eligibility.eligible) {
+    throw data(INELIGIBLE_MESSAGES[eligibility.reason], { status: 403 });
   }
 
   const formData = await request.formData();

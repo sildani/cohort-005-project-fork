@@ -55,6 +55,7 @@ import {
 } from "~/lib/ppp";
 import { parseFormData } from "~/lib/validation";
 import { MAX_RATING, MIN_RATING } from "~/lib/ratings";
+import { checkRefundEligibility } from "~/lib/refund-eligibility";
 import { StarRating, StarRatingInput } from "~/components/star-rating";
 
 function getCourseBySlug(slug: string) {
@@ -366,10 +367,6 @@ function rateCourse(userId: number, courseId: number, rating: number) {
     .get();
 }
 
-const REFUND_WINDOW_DAYS = 14;
-const REFUND_WATCH_LIMIT_SECONDS = 2 * 60 * 60;
-const REFUND_COMPLETION_LIMIT = 0.5;
-
 function getPurchaseForCourse(userId: number, courseId: number) {
   return db
     .select()
@@ -430,15 +427,6 @@ function getSecondsWatched(userId: number, lessonIds: number[]) {
   return furthestPerLesson.reduce((total, row) => total + row.furthest, 0);
 }
 
-// Compare whole days, not hours — a purchase at 23:00 should still get its
-// full fourteenth day.
-function asDayString(when: Date) {
-  const year = when.getFullYear();
-  const month = String(when.getMonth() + 1).padStart(2, "0");
-  const day = String(when.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 /**
  * What the learner is offered if they want their money back, or null if this
  * purchase cannot be refunded.
@@ -449,28 +437,7 @@ function getRefundOffer(userId: number, course: { id: number }) {
   if (!purchase) return null;
   if (getOpenRefundRequest(purchase.id)) return null;
 
-  const purchasedDay = asDayString(new Date(purchase.createdAt));
-  const windowEnd = new Date(purchase.createdAt);
-  windowEnd.setDate(windowEnd.getDate() + REFUND_WINDOW_DAYS);
-  const lastDayInWindow = asDayString(windowEnd);
-  const todayDay = asDayString(new Date());
-  const isWithinWindow =
-    todayDay >= purchasedDay && todayDay <= lastDayInWindow;
-
-  if (!isWithinWindow) return null;
-
   const lessonIds = getCourseLessonIds(course.id);
-
-  if (lessonIds.length > 0) {
-    const completedCount = getCompletedLessonCount(userId, lessonIds);
-    if (completedCount / lessonIds.length >= REFUND_COMPLETION_LIMIT) {
-      return null;
-    }
-  }
-
-  if (getSecondsWatched(userId, lessonIds) >= REFUND_WATCH_LIMIT_SECONDS) {
-    return null;
-  }
 
   const claimedSeat = db
     .select({ id: coupons.id })
@@ -480,9 +447,21 @@ function getRefundOffer(userId: number, course: { id: number }) {
     )
     .get();
 
-  if (claimedSeat) return null;
+  const eligibility = checkRefundEligibility({
+    purchasedAt: purchase.createdAt,
+    today: new Date(),
+    totalLessons: lessonIds.length,
+    completedLessons: getCompletedLessonCount(userId, lessonIds),
+    secondsWatched: getSecondsWatched(userId, lessonIds),
+    hasClaimedSeat: Boolean(claimedSeat),
+  });
 
-  return { amount: purchase.amountPaid, lastDayInWindow };
+  if (!eligibility.eligible) return null;
+
+  return {
+    amount: purchase.amountPaid,
+    lastDayInWindow: eligibility.lastDayInWindow,
+  };
 }
 
 const ratingSchema = z.object({
