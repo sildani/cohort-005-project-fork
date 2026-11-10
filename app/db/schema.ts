@@ -252,7 +252,7 @@ export const refunds = sqliteTable(
     resolvedAt: text("resolved_at"),
     resolvedByUserId: integer("resolved_by_user_id").references(() => users.id),
   },
-  (table) => [index("refunds_purchase_idx").on(table.purchaseId)]
+  (table) => [uniqueIndex("refunds_purchase_idx").on(table.purchaseId)]
 );
 
 export const teams = sqliteTable("teams", {

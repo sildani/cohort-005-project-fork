@@ -85,6 +85,13 @@
       "when": 1794272459215,
       "tag": "0011_long_mole_man",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794275051350,
+      "tag": "0012_flawless_energizer",
+      "breakpoints": true
     }
   ]
 }

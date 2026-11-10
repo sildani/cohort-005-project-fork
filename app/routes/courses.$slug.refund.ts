@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Route } from "./+types/courses.$slug.refund";
 import { getCurrentUserId } from "~/lib/session";
 import { db } from "~/db";
-import { courses, purchases, refunds, users, RefundStatus } from "~/db/schema";
+import { courses, purchases, users } from "~/db/schema";
 import { and, eq } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { formatPrice } from "~/lib/utils";
@@ -14,7 +14,10 @@ import {
 } from "~/lib/refund-eligibility";
 import { getLatestPersonalPurchase } from "~/lib/personal-purchase.server";
 import { getRefundEligibilityFacts } from "~/lib/refund-facts.server";
-import { findRefundRequestForPurchase } from "~/lib/refund-decisions.server";
+import {
+  findRefundRequestForPurchase,
+  raiseRefundRequest,
+} from "~/lib/refund-decisions.server";
 
 const INELIGIBLE_MESSAGES: Record<RefundIneligibleReason, string> = {
   "window-closed": `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
@@ -139,15 +142,18 @@ export async function action({ params, request }: Route.ActionArgs) {
     return data({ errors: parsed.errors }, { status: 400 });
   }
 
-  db
-    .insert(refunds)
-    .values({
-      purchaseId: purchase.id,
-      status: RefundStatus.Open,
-      reason: parsed.data.reason,
-    })
-    .returning()
-    .get();
+  // The check above catches the usual repeat. This catches two requests sent
+  // at once, which can both pass it while the form data is read.
+  const raised = raiseRefundRequest(db, {
+    purchaseId: purchase.id,
+    reason: parsed.data.reason,
+  });
+
+  if (!raised.ok) {
+    throw data("You have already asked for a refund on this purchase.", {
+      status: 409,
+    });
+  }
 
   const email = buildRefundRequestEmail({
     learnerName: learner.name,

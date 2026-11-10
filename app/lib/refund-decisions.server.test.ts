@@ -22,6 +22,7 @@ import {
   approveRefundRequest,
   declineRefundRequest,
   findRefundRequestForPurchase,
+  raiseRefundRequest,
 } from "./refund-decisions.server";
 
 // Liam bought a $79 course, watched part of the first lesson, and raised a
@@ -240,6 +241,21 @@ describe("findRefundRequestForPurchase", () => {
       id: liam.refundRequest.id,
       status: RefundStatus.Declined,
       declineReason: "You bought it over a month ago.",
+    });
+  });
+});
+
+describe("raiseRefundRequest", () => {
+  it("refuses a second Refund Request on the same purchase and keeps the first", () => {
+    const second = raiseRefundRequest(db, {
+      purchaseId: liam.purchase.id,
+      reason: "Asking again in another tab, just in case.",
+    });
+
+    expect(second).toEqual({ ok: false, alreadyRequested: true });
+    expect(findRefundRequestForPurchase(db, liam.purchase.id)).toMatchObject({
+      id: liam.refundRequest.id,
+      reason: "Bought the wrong one, I meant the advanced course.",
     });
   });
 });

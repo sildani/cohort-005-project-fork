@@ -133,3 +133,30 @@ export function findRefundRequestForPurchase(db: Db, purchaseId: number) {
     .where(eq(refunds.purchaseId, purchaseId))
     .get();
 }
+
+/**
+ * Raises the learner's Refund Request on a purchase. A purchase has at most
+ * one, and the unique index on `refunds.purchase_id` enforces that, so two
+ * requests sent at once can't both get in.
+ */
+export function raiseRefundRequest(
+  db: Db,
+  request: { purchaseId: number; reason: string }
+) {
+  const raised = db
+    .insert(refunds)
+    .values({
+      purchaseId: request.purchaseId,
+      status: RefundStatus.Open,
+      reason: request.reason,
+    })
+    .onConflictDoNothing({ target: refunds.purchaseId })
+    .returning()
+    .get();
+
+  if (!raised) {
+    return { ok: false as const, alreadyRequested: true as const };
+  }
+
+  return { ok: true as const, refundRequest: raised };
+}
