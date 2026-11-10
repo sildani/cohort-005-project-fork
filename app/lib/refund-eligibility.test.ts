@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkRefundEligibility } from "./refund-eligibility";
+import { checkRefundEligibility, daysLeftInWindow } from "./refund-eligibility";
 
 // A learner who bought a course this morning and has barely started it. Each
 // test changes one fact to probe one rule.
@@ -66,5 +66,21 @@ describe("checkRefundEligibility", () => {
         checkRefundEligibility({ ...freshPurchase, completedLessons: 5 })
       ).toEqual({ eligible: false, reason: "completed-too-much" });
     });
+  });
+});
+
+describe("daysLeftInWindow", () => {
+  const purchasedAt = new Date(2026, 10, 2, 23, 0).toISOString();
+
+  it("gives the full 14 days on the day of purchase", () => {
+    expect(daysLeftInWindow(purchasedAt, new Date(2026, 10, 2, 23, 30))).toBe(14);
+  });
+
+  it("gives 0 on the last day of the window", () => {
+    expect(daysLeftInWindow(purchasedAt, new Date(2026, 10, 16, 23, 59))).toBe(0);
+  });
+
+  it("goes negative once the window has closed", () => {
+    expect(daysLeftInWindow(purchasedAt, new Date(2026, 10, 19, 0, 1))).toBe(-3);
   });
 });

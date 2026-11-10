@@ -68,3 +68,22 @@ function lastDayInWindow(purchasedAt: string): string {
   deadline.setDate(deadline.getDate() + REFUND_WINDOW_DAYS);
   return calendarDay(deadline);
 }
+
+/**
+ * Whole calendar days left in the window after today: 0 on the last day,
+ * negative once it has closed.
+ */
+export function daysLeftInWindow(purchasedAt: string, today: Date): number {
+  const deadline = new Date(purchasedAt);
+  deadline.setDate(deadline.getDate() + REFUND_WINDOW_DAYS);
+  return calendarDayNumber(deadline) - calendarDayNumber(today);
+}
+
+// Counting via UTC midnight of the local date keeps a daylight-saving change
+// from turning a day into 23 or 25 hours.
+function calendarDayNumber(when: Date): number {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return (
+    Date.UTC(when.getFullYear(), when.getMonth(), when.getDate()) / msPerDay
+  );
+}
