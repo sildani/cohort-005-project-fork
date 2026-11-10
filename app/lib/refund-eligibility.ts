@@ -1,8 +1,14 @@
 /**
- * The rules for whether a learner may raise a Refund Request on a purchase.
- * The course page uses them to decide whether to offer a refund, and the
- * refund action uses them to accept or reject the request. Keep both on this
- * one function so they can't drift apart.
+ * The rules for whether a learner may raise a Refund Request on a Personal
+ * Purchase. (A Team Licence can't have a Refund Request at all; callers pick
+ * the Personal Purchase before asking.) The course page uses these rules to
+ * decide whether to offer a refund, and the refund action uses them to accept
+ * or reject the request. Keep both on this one function so they can't drift
+ * apart.
+ *
+ * Watch time and completed lessons cover the learner's whole history with the
+ * course, not just the current purchase: someone who was refunded and buys
+ * again starts from what they had already used.
  */
 
 export const REFUND_WINDOW_DAYS = 14;
@@ -15,11 +21,9 @@ export type RefundEligibilityFacts = {
   totalLessons: number;
   completedLessons: number;
   secondsWatched: number;
-  hasClaimedSeat: boolean;
 };
 
 export type RefundIneligibleReason =
-  | "claimed-seat"
   | "window-closed"
   | "watched-too-much"
   | "completed-too-much";
@@ -31,12 +35,6 @@ export type RefundEligibility =
 export function checkRefundEligibility(
   facts: RefundEligibilityFacts
 ): RefundEligibility {
-  // A seat that came out of a team licence, and has been claimed, belongs to
-  // the team: the buyer cannot hand it back on their own.
-  if (facts.hasClaimedSeat) {
-    return { eligible: false, reason: "claimed-seat" };
-  }
-
   const lastDay = lastDayInWindow(facts.purchasedAt);
 
   if (calendarDay(facts.today) > lastDay) {

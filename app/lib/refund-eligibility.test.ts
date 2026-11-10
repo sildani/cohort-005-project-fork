@@ -9,7 +9,6 @@ const freshPurchase = {
   totalLessons: 10,
   completedLessons: 0,
   secondsWatched: 0,
-  hasClaimedSeat: false,
 };
 
 describe("checkRefundEligibility", () => {
@@ -38,14 +37,6 @@ describe("checkRefundEligibility", () => {
           today: new Date(2026, 10, 17, 0, 1),
         })
       ).toEqual({ eligible: false, reason: "window-closed" });
-    });
-  });
-
-  describe("team seats", () => {
-    it("refuses a Refund Request on a purchase whose team seat has been claimed", () => {
-      expect(
-        checkRefundEligibility({ ...freshPurchase, hasClaimedSeat: true })
-      ).toEqual({ eligible: false, reason: "claimed-seat" });
     });
   });
 

@@ -5,7 +5,6 @@ import { getCurrentUserId } from "~/lib/session";
 import { db } from "~/db";
 import {
   courses,
-  coupons,
   lessonProgress,
   lessons,
   modules,
@@ -16,7 +15,7 @@ import {
   LessonProgressStatus,
   RefundStatus,
 } from "~/db/schema";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { formatPrice } from "~/lib/utils";
 import {
@@ -24,9 +23,9 @@ import {
   REFUND_WINDOW_DAYS,
   type RefundIneligibleReason,
 } from "~/lib/refund-eligibility";
+import { getLatestPersonalPurchase } from "~/lib/personal-purchase.server";
 
 const INELIGIBLE_MESSAGES: Record<RefundIneligibleReason, string> = {
-  "claimed-seat": "A claimed team seat cannot be refunded.",
   "window-closed": `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
   "watched-too-much":
     "You have watched too much of this course to request a refund.",
@@ -50,13 +49,14 @@ function getCourseBySlug(slug: string) {
   return db.select().from(courses).where(eq(courses.slug, slug)).get();
 }
 
-function getLatestPurchase(userId: number, courseId: number) {
-  return db
-    .select()
+function hasAnyPurchase(userId: number, courseId: number) {
+  const row = db
+    .select({ id: purchases.id })
     .from(purchases)
     .where(and(eq(purchases.userId, userId), eq(purchases.courseId, courseId)))
-    .orderBy(sql`${purchases.createdAt} desc`)
     .get();
+
+  return Boolean(row);
 }
 
 function getLessonIdsForCourse(courseId: number): number[] {
@@ -151,9 +151,15 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("User not found", { status: 404 });
   }
 
-  const purchase = getLatestPurchase(currentUserId, course.id);
+  const purchase = getLatestPersonalPurchase(currentUserId, course.id);
 
   if (!purchase) {
+    if (hasAnyPurchase(currentUserId, course.id)) {
+      throw data(
+        "Refund Requests are for personal purchases. Team licences can't be refunded here.",
+        { status: 403 }
+      );
+    }
     throw data("You have not bought this course.", { status: 403 });
   }
 
@@ -162,14 +168,6 @@ export async function action({ params, request }: Route.ActionArgs) {
       status: 409,
     });
   }
-
-  const claimedSeat = db
-    .select({ id: coupons.id })
-    .from(coupons)
-    .where(
-      and(eq(coupons.purchaseId, purchase.id), isNotNull(coupons.redeemedAt))
-    )
-    .get();
 
   const courseLessonIds = getLessonIdsForCourse(course.id);
 
@@ -201,7 +199,6 @@ export async function action({ params, request }: Route.ActionArgs) {
     totalLessons: courseLessonIds.length,
     completedLessons: getCompletedLessonCount(currentUserId, courseLessonIds),
     secondsWatched: watchedSeconds,
-    hasClaimedSeat: Boolean(claimedSeat),
   });
 
   if (!eligibility.eligible) {

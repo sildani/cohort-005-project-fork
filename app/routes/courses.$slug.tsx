@@ -14,14 +14,12 @@ import {
   enrollments,
   lessonProgress,
   courseRatings,
-  purchases,
-  coupons,
   refunds,
   videoWatchEvents,
   LessonProgressStatus,
   RefundStatus,
 } from "~/db/schema";
-import { eq, and, or, sql, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, or, sql, inArray } from "drizzle-orm";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -56,6 +54,7 @@ import {
 import { parseFormData } from "~/lib/validation";
 import { MAX_RATING, MIN_RATING } from "~/lib/ratings";
 import { checkRefundEligibility } from "~/lib/refund-eligibility";
+import { getLatestPersonalPurchase } from "~/lib/personal-purchase.server";
 import { StarRating, StarRatingInput } from "~/components/star-rating";
 
 function getCourseBySlug(slug: string) {
@@ -367,15 +366,6 @@ function rateCourse(userId: number, courseId: number, rating: number) {
     .get();
 }
 
-function getPurchaseForCourse(userId: number, courseId: number) {
-  return db
-    .select()
-    .from(purchases)
-    .where(and(eq(purchases.userId, userId), eq(purchases.courseId, courseId)))
-    .orderBy(sql`${purchases.createdAt} desc`)
-    .get();
-}
-
 function getOpenRefundRequest(purchaseId: number) {
   return db
     .select({ id: refunds.id })
@@ -432,20 +422,12 @@ function getSecondsWatched(userId: number, lessonIds: number[]) {
  * purchase cannot be refunded.
  */
 function getRefundOffer(userId: number, course: { id: number }) {
-  const purchase = getPurchaseForCourse(userId, course.id);
+  const purchase = getLatestPersonalPurchase(userId, course.id);
 
   if (!purchase) return null;
   if (getOpenRefundRequest(purchase.id)) return null;
 
   const lessonIds = getCourseLessonIds(course.id);
-
-  const claimedSeat = db
-    .select({ id: coupons.id })
-    .from(coupons)
-    .where(
-      and(eq(coupons.purchaseId, purchase.id), isNotNull(coupons.redeemedAt))
-    )
-    .get();
 
   const eligibility = checkRefundEligibility({
     purchasedAt: purchase.createdAt,
@@ -453,7 +435,6 @@ function getRefundOffer(userId: number, course: { id: number }) {
     totalLessons: lessonIds.length,
     completedLessons: getCompletedLessonCount(userId, lessonIds),
     secondsWatched: getSecondsWatched(userId, lessonIds),
-    hasClaimedSeat: Boolean(claimedSeat),
   });
 
   if (!eligibility.eligible) return null;
