@@ -2783,6 +2783,68 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log("Created Liam's Refund Request.");
 
+  // ─── Decided Refund Requests ───
+  // One of each decision, so the Admin's history views, the learner's
+  // settings and the course page's decline note have something to show.
+
+  // James was declined: he keeps his access, and the Decline Reason is what
+  // he reads on the course page.
+  const james = studentByEmail("james.park@student.dev");
+  const [jamesPurchase] = db
+    .insert(schema.purchases)
+    .values({
+      userId: james.id,
+      courseId: course3.id,
+      amountPaid: 3999,
+      country: null,
+      createdAt: daysAgo(40),
+    })
+    .returning()
+    .all();
+  db.insert(schema.enrollments)
+    .values({ userId: james.id, courseId: course3.id, enrolledAt: daysAgo(40) })
+    .run();
+  db.insert(schema.refunds)
+    .values({
+      purchaseId: jamesPurchase.id,
+      status: RefundStatus.Declined,
+      reason: "I didn't have time to finish it.",
+      declineReason:
+        "Running out of time isn't covered by our refund policy, which is for courses that didn't meet your expectations.",
+      requestedAt: daysAgo(30),
+      resolvedAt: daysAgo(29),
+      resolvedByUserId: admin.id,
+    })
+    .run();
+
+  // Sophia was approved: the full amount is refunded and her enrollment is
+  // gone, so she has no access to the course.
+  const sophia = studentByEmail("sophia.davis@student.dev");
+  const [sophiaPurchase] = db
+    .insert(schema.purchases)
+    .values({
+      userId: sophia.id,
+      courseId: course2.id,
+      amountPaid: 5999,
+      country: null,
+      createdAt: daysAgo(20),
+    })
+    .returning()
+    .all();
+  db.insert(schema.refunds)
+    .values({
+      purchaseId: sophiaPurchase.id,
+      status: RefundStatus.Approved,
+      reason: "The course assumes more Node experience than I have.",
+      amountRefunded: 5999,
+      requestedAt: daysAgo(18),
+      resolvedAt: daysAgo(17),
+      resolvedByUserId: admin.id,
+    })
+    .run();
+
+  console.log("Created a Declined and an Approved Refund Request.");
+
   // ─── Flush watch events ───
   // Batched: the heartbeat makes these by far the largest table, and one
   // statement per row would dominate the seed's runtime.

@@ -16,7 +16,7 @@ export function buildRefundApprovedEmail(
 ) {
   return {
     to: input.learnerEmail,
-    subject: `Refund approved — ${input.courseTitle}`,
+    subject: `Refund Request approved — ${input.courseTitle}`,
     body: [
       `Hi ${input.learnerName},`,
       "",
@@ -25,7 +25,7 @@ export function buildRefundApprovedEmail(
       "",
       `You no longer have access to "${input.courseTitle}".`,
       "",
-      "— The Cadence team",
+      "— Cadence",
     ].join("\n"),
   };
 }
@@ -40,7 +40,7 @@ export function buildRefundDeclinedEmail(
 ) {
   return {
     to: input.learnerEmail,
-    subject: `Refund declined — ${input.courseTitle}`,
+    subject: `Refund Request declined — ${input.courseTitle}`,
     body: [
       `Hi ${input.learnerName},`,
       "",
@@ -50,7 +50,7 @@ export function buildRefundDeclinedEmail(
       "",
       DECLINE_IS_FINAL,
       "",
-      "— The Cadence team",
+      "— Cadence",
     ].join("\n"),
   };
 }

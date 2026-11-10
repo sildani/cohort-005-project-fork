@@ -76,6 +76,11 @@ export function approveRefundRequest(db: Db, decision: Decision) {
 
     // Access comes from the enrollment. Progress and watch history stay, so a
     // learner who buys the course again picks up where they left off.
+    //
+    // Deleting by user and course is safe because a learner has at most one
+    // enrollment per course: buying is blocked while enrolled
+    // (courses.$slug.purchase.tsx), and so is claiming a Seat (redeem.$code.tsx).
+    // If either guard is relaxed, this would also remove access a Team paid for.
     tx.delete(enrollments)
       .where(
         and(

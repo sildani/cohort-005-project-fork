@@ -16,7 +16,7 @@ describe("buildRefundApprovedEmail", () => {
 
     expect(email.to).toBe("liam@example.com");
     expect(email.subject).toBe(
-      "Refund approved — Introduction to TypeScript"
+      "Refund Request approved — Introduction to TypeScript"
     );
     expect(email.body).toContain("$79.00");
     expect(email.body).toContain(
@@ -34,7 +34,7 @@ describe("buildRefundDeclinedEmail", () => {
 
     expect(email.to).toBe("liam@example.com");
     expect(email.subject).toBe(
-      "Refund declined — Introduction to TypeScript"
+      "Refund Request declined — Introduction to TypeScript"
     );
     expect(email.body).toContain("You completed the course before asking.");
     expect(email.body).toContain(

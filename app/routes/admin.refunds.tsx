@@ -85,7 +85,7 @@ async function requireAdmin(request: Request) {
   const currentUserId = await getCurrentUserId(request);
 
   if (!currentUserId) {
-    throw data("Select a user from the DevUI panel to decide refunds.", {
+    throw data("Select a user from the DevUI panel to decide Refund Requests.", {
       status: 401,
     });
   }
@@ -202,10 +202,9 @@ export async function action({ request }: Route.ActionArgs) {
   const parsed = parseFormData(formData, adminRefundActionSchema);
 
   if (!parsed.success) {
-    return data(
-      { error: Object.values(parsed.errors)[0] ?? "Invalid input." },
-      { status: 400 }
-    );
+    throw data(Object.values(parsed.errors)[0] ?? "Invalid input.", {
+      status: 400,
+    });
   }
 
   const decision = parsed.data;
@@ -223,10 +222,9 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (!result.ok) {
     const { status, byName } = result.alreadyDecided;
-    return data(
-      { error: `Already ${status} by ${byName ?? "another Admin"}.` },
-      { status: 409 }
-    );
+    throw data(`Already ${status} by ${byName ?? "another Admin"}.`, {
+      status: 409,
+    });
   }
 
   const details = db
@@ -268,16 +266,14 @@ export async function action({ request }: Route.ActionArgs) {
 
 type RefundRequestRow = Route.ComponentProps["loaderData"]["refundRequests"][number];
 
+// Failures are thrown by the action and land in the ErrorBoundary, so the
+// fetcher only ever sees a success.
 function useDecisionFetcher() {
-  const fetcher = useFetcher<{ success?: boolean; message?: string; error?: string }>();
+  const fetcher = useFetcher<typeof action>();
 
   useEffect(() => {
-    if (fetcher.state !== "idle" || !fetcher.data) return;
-    if (fetcher.data.success && fetcher.data.message) {
+    if (fetcher.state === "idle" && fetcher.data?.success) {
       toast.success(fetcher.data.message);
-    }
-    if (fetcher.data.error) {
-      toast.error(fetcher.data.error);
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -313,10 +309,6 @@ function OpenRefundRequest({ refundRequest }: { refundRequest: RefundRequestRow 
   const trimmedReason = declineReason.trim();
   const reasonError = declineReasonSchema.safeParse(declineReason).error
     ?.issues[0]?.message;
-
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.error) setStep("idle");
-  }, [fetcher.state, fetcher.data]);
 
   return (
     <Card>
@@ -600,6 +592,10 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     } else if (error.status === 403) {
       title = "Access denied";
       message = typeof error.data === "string" ? error.data : "Only admins can access this page.";
+    } else if (error.status === 409) {
+      // Another Admin decided this Refund Request first. Their decision stands.
+      title = "Already decided";
+      message = typeof error.data === "string" ? error.data : "Another Admin decided this Refund Request first.";
     } else {
       title = `Error ${error.status}`;
       message = typeof error.data === "string" ? error.data : error.statusText;
@@ -613,8 +609,11 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
         <h1 className="mb-2 text-2xl font-bold">{title}</h1>
         <p className="mb-6 text-muted-foreground">{message}</p>
         <div className="flex items-center justify-center gap-3">
+          <Link to="/admin/refunds">
+            <Button>Back to Refund Requests</Button>
+          </Link>
           <Link to="/">
-            <Button>Go Home</Button>
+            <Button variant="outline">Go Home</Button>
           </Link>
         </div>
       </div>

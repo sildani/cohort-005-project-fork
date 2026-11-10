@@ -974,7 +974,7 @@ function RequestRefund({ slug, amount }: { slug: string; amount: number }) {
 function RefundDeclined({ declineReason }: { declineReason: string }) {
   return (
     <div className="border-t pt-4">
-      <p className="mb-1 text-sm font-medium">Refund declined</p>
+      <p className="mb-1 text-sm font-medium">Refund Request declined</p>
       <p className="mb-2 whitespace-pre-line text-sm text-muted-foreground">
         {declineReason}
       </p>

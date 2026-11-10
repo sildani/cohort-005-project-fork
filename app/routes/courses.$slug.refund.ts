@@ -62,7 +62,7 @@ function buildRefundRequestEmail(input: {
 }) {
   return {
     to: input.learnerEmail,
-    subject: `Refund requested — ${input.courseTitle}`,
+    subject: `Refund Request received — ${input.courseTitle}`,
     body: [
       `Hi ${input.learnerName},`,
       "",
@@ -71,7 +71,7 @@ function buildRefundRequestEmail(input: {
       "",
       "Someone at Cadence reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
       "",
-      "— The Cadence team",
+      "— Cadence",
     ].join("\n"),
   };
 }
