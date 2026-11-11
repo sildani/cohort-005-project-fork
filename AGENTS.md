@@ -5,6 +5,10 @@ Do these checks in this order before you report a change to `app/` as complete:
 1. `npm run typecheck`
 2. `npm run test`
 
+## Conventions
+
+- Money is stored as integer cents and shown only through `formatPrice`.
+
 ## When something breaks
 
 | Symptom                                         | Cause                                                                                                  |

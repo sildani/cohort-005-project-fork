@@ -1,3 +1,9 @@
+---
+status: deprecated
+---
+
+> **Deprecated (2026-11-10).** No longer applies. Email is sent through Postmark by `app/lib/mailer.server.ts` when `POSTMARK_SERVER_TOKEN` is set, and written to `.outbox/` otherwise. Kept as history; do not treat as a current decision.
+
 # Refund emails go to the server log until we choose a mail provider
 
 A learner who asks for a refund is promised a confirmation email, but Cadence has no mail transport. `raiseRefundRequest` builds the full message and the refund route writes it to the server log, and the settings page stays the learner's record of a pending Refund. Sending from our own SMTP server would mean running SPF, DKIM and a sender reputation ourselves, and signing up with a provider now would commit us to a pricing tier before we know our volume.

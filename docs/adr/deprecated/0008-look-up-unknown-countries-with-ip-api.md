@@ -1,3 +1,9 @@
+---
+status: deprecated
+---
+
+> **Deprecated (2026-11-10).** No longer applies. `resolveCountry` in `app/lib/country.server.ts` reads only the dev override and `CF-IPCountry`, and prices at full price when neither is present, so no page waits on a network call. Kept as history; do not treat as a current decision.
+
 # Look up a buyer's country with ip-api.com when the request does not carry one
 
 Purchasing-power prices depend on the buyer's country. Behind Cloudflare the request carries it in the `CF-IPCountry` header, but not every request comes through Cloudflare. When the header is missing, `resolveCountry` looks up the first `X-Forwarded-For` address on ip-api.com's free endpoint, and only falls back to full price if that lookup fails.
