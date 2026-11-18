@@ -93,6 +93,16 @@ A Refund where the money couldn't be sent. The Refund Request stays approved, be
 The amount of Watched time on a course past which a Student can no longer get a Refund, because they've had the course.
 _Avoid_: Watch cap, Viewing threshold
 
+### Questions
+
+**Question**:
+A top-level comment a Student leaves on a lesson, which the course's Instructor is expected to answer.
+_Avoid_: Comment (for the question itself), Thread, Ticket
+
+**Reply**:
+A comment that answers a Question. Replies are one level deep: a Reply can't itself be replied to.
+_Avoid_: Answer, Response
+
 ### Notifications
 
 **Notification**:
