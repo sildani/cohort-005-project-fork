@@ -96,7 +96,7 @@ _Avoid_: Watch cap, Viewing threshold
 ### Questions
 
 **Question**:
-A top-level comment a Student leaves on a lesson, which the course's Instructor is expected to answer.
+A top-level comment on a lesson, left by anyone but that course's Instructor or a Platform Admin, which the course's Instructor is expected to answer.
 _Avoid_: Comment (for the question itself), Thread, Ticket
 
 **Reply**:
